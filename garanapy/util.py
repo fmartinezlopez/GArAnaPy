@@ -4,7 +4,7 @@ from os import walk
 import re
 from typing import List
 
-def get_datafile_list(data_path: str, match_exprs: List[str]=["*.root"]) -> List[str]:
+def get_datafile_list(data_path: str, match_exprs: List[str] = ["*.root"]) -> List[str]:
     """ Get a list with the names of the files in a certain directory
         containing a substring from a list.
 
