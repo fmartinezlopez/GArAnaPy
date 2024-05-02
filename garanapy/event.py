@@ -1,12 +1,16 @@
 import numpy as np
 import uproot
 import awkward
+import pickle
 
 from rich.progress import track
 
 from garanapy import util
-from typing import List
+from garanapy import plotting
+
+from typing import List, Tuple
 from pathlib import Path
+from collections import Counter
 
 def create_event(e):
     return Event(e)
@@ -14,6 +18,7 @@ def create_event(e):
 class Neutrino:
     def __init__(self, e: awkward.highlevel.Record) -> None:
         self.type = e.NeutrinoType[0]
+        self.cc   = bool(e.CCNC[0]-1)
         self.energy = np.sqrt(np.square(e.MCnuPX)+np.square(e.MCnuPY)+np.square(e.MCnuPZ))[0]
 
     def __str__(self) -> str:
@@ -41,6 +46,10 @@ class MCParticle:
 class RecoParticle:
     def __init__(self, e: awkward.highlevel.Record, idx: int) -> None:
         self.id = idx
+
+        self.mc_pdg      = e.MCPPDG[idx]
+        self.mc_primary  = bool(e.MCPPrimary[idx])
+        self.mc_momentum = e.MCPMomentumStart[idx]
 
         self.momentum = e.RecoMomentum[idx]
 
@@ -86,6 +95,23 @@ class Event:
 
         self.has_muon = False
 
+        self.mc_primary_muon()
+
+    def mc_primary_muon(self) -> None:
+        if (self.nu.type == 14) & (self.nu.cc == True):
+            self.numu_cc = True
+
+            candidates = [(p.id, p.momentum) for p in self.recoparticle_list if (p.mc_pdg == 13) & (p.mc_primary == True)]
+            candidates = sorted(candidates, key=lambda x: x[1])
+
+            if (len(candidates) > 0):
+                self.mc_muon_id = candidates[0][0]
+            else:
+                self.mc_muon_id = -1
+        else:
+            self.numu_cc = False
+            self.mc_muon_id = -1
+
     def get_recoparticle(self, id: int) -> RecoParticle:
         return self.recoparticle_list[id]
 
@@ -104,9 +130,24 @@ class Event:
             # Set the PID of that reco particle to 13
             muon.set_pid(13)
 
-            # Update 
+            # Update event summary info
             self.has_muon = True
             self.muon_id = muon_id
+
+            if (self.numu_cc == True):
+                #if (self.muon_id == self.mc_muon_id):
+                if (muon.mc_pdg == 13) & (muon.mc_primary == 1):
+                    self.muon_score = (1,1) # TP
+                else:
+                    self.muon_score = (1,0) # FP
+            else:
+                self.muon_score = (1,0) # FP
+
+        else:
+            if (self.numu_cc == True):
+                self.muon_score = (0,1) # FN
+            else:
+                self.muon_score = (0,0) # TN
 
     def __str__(self) -> str:
         return ("Neutrino:\n"+
@@ -121,6 +162,15 @@ class DataManager:
         self.event_list = []
         self._true_nu_energy = False
         self._primary_muon_momentum = False
+        self._compute_primary_muon_performance = False
+
+    def save(self, filename: str) -> None:
+        with open(filename, 'wb') as outp:  # Overwrites any existing file.
+            pickle.dump(self, outp, pickle.HIGHEST_PROTOCOL)
+
+    def open(self, filename: str):
+        with open(filename, 'rb') as inp:
+            self = pickle.load(inp)
 
     def open_events(self, data_path: str, tree_name: str = "recoparticlesana/AnaTree", n_files: int = -1) -> None:
         file_list = util.get_datafile_list(data_path)
@@ -146,10 +196,43 @@ class DataManager:
         for e in self.event_list:
             e.search_primary_muon(cut)
 
-    def get_primary_muon_momentum(self) -> List[float]:
+    def compute_primary_muon_momentum(self, bins: np.array = np.linspace(0.0, 10.0, 21)) -> List[float]:
         if self._primary_muon_momentum:
             return self.primary_muon_momentum
         else:
             self._primary_muon_momentum = True
-            self.primary_muon_momentum = [e.get_recoparticle(e.muon_id).momentum for e in self.event_list if e.has_muon]
-            return self.get_primary_muon_momentum()
+            primary_muon_momentum = [e.get_recoparticle(e.muon_id).momentum for e in self.event_list if e.has_muon]
+            self.primary_muon_momentum = plotting.Histogram(bins=bins, label="Primary muon")
+            self.primary_muon_momentum.make_hist(primary_muon_momentum)
+            return self.compute_primary_muon_momentum()
+        
+    def compute_primary_muon_performance(self, bins: np.array = np.linspace(0.0, 3.0, 21)) -> None:
+        if self._compute_primary_muon_performance:
+            return
+        else:
+            self._compute_primary_muon_performance = True
+            primary_muon_scores = [(e.muon_score, e.get_recoparticle(e.mc_muon_id).mc_momentum) for e in self.event_list if e.mc_muon_id >= 0]
+
+            self.efficiency_hist = plotting.Histogram(bins=bins, label="Efficiency")
+            self.purity_hist     = plotting.Histogram(bins=bins, label="Purity")
+
+            for n in range(len(bins)-1):
+                c = Counter([p[0] for p in primary_muon_scores if (p[1] >= bins[n]) & (p[1] < bins[n+1])])
+                tp = c[(1,1)]
+                fp = c[(1,0)]
+                fn = c[(0,1)]
+
+                try:
+                    efficiency = tp/(tp+fn)
+                except:
+                    efficiency = 0.0
+                
+                try:
+                    purity = tp/(tp+fp)
+                except:
+                    purity = 0.0
+
+                self.efficiency_hist.add_count(efficiency)
+                self.purity_hist.add_count(purity)
+
+            return
