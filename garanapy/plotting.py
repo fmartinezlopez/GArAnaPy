@@ -17,6 +17,7 @@ custom_preamble = {
     }
 plt.rcParams.update(custom_preamble)
 
+# todo: why is this not working?
 color_cycle = ["#3f90da", "#ffa90e", "#bd1f01", "#94a4a2", "#832db6", "#a96b59", "#e76300", "#b9ac70", "#717581", "#92dadd"]
 plt.rcParams["axes.prop_cycle"] = plt.cycler("color", color_cycle)
 
@@ -45,10 +46,6 @@ class Histogram:
         else:
             self.label = ""
 
-        self.data = []
-
-        self.update = False
-
     def set_label(self, label) -> None:
         self.label = label
 
@@ -58,35 +55,18 @@ class Histogram:
     def add_count(self, count) -> None:
         self.counts.append(count)
 
-    def add_data(self, data) -> None:
-        self.data.append(data)
-        self.update = True
-
-    def make_hist(self) -> None:
-        counts, _ = np.histogram(self.data, self.bins)
-        self.counts = counts
-        self.yerr = np.sqrt(counts)
-
-    def make_hist_from_input(self, data) -> None:
+    def make_hist(self, data) -> None:
         counts, _ = np.histogram(data, self.bins)
         self.counts = counts
         self.yerr = np.sqrt(counts)
 
-    def get_histogram(self, ax=None, **kwargs) -> None:
-        if self.update:
-            self.make_hist()
-            self.update = False
-
+    def plot_histogram(self, ax=None, **kwargs) -> None:
         if ax is None:
             fig, ax = plt.subplots()
 
         ax.stairs(self.counts, self.bins, linewidth=1.5, label=self.label, **kwargs)
 
-    def get_histogram_errorbar(self, ax=None, yerr=True, **kwargs) -> None:
-        if self.update:
-            self.make_hist()
-            self.update = False
-
+    def plot_histogram_errorbar(self, ax=None, yerr=True, **kwargs) -> None:
         if ax is None:
             fig, ax = plt.subplots()
 

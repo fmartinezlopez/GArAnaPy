@@ -3,7 +3,7 @@ import uproot
 import pickle
 
 import inspect
-from typing import List, Callable
+from typing import List, Callable, Union
 from pathlib import Path
 
 from rich.progress import track
@@ -36,6 +36,17 @@ class Spectrum:
     def __init__(self, variable, bins) -> None:
         self.variable = variable
         self.hist = plotting.Histogram(bins=bins)
+        self.data = []
+
+    def add_data(self, data_point: Union[int, float]) -> None:
+        self.data.append(data_point)
+
+    def set_binning(self, bins) -> None:
+        self.hist = plotting.Histogram(bins=bins)
+
+    def get_histogram(self) -> plotting.Histogram:
+        self.hist.make_hist(self.data)
+        return self.hist
     
 class DataManager:
     def __init__(self) -> None:
@@ -45,10 +56,6 @@ class DataManager:
     def save(self, filename: str) -> None:
         with open(filename, 'wb') as output:  # Overwrites any existing file
             pickle.dump(self, output, pickle.HIGHEST_PROTOCOL)
-
-    def open(self, filename: str):
-        with open(filename, 'rb') as inp:
-            self = pickle.load(inp)
 
     def open_events(self, data_path: str, tree_name: str = "recoparticlesana/AnaTree", n_files: int = -1) -> None:
         file_list = util.get_datafile_list(data_path)
@@ -70,11 +77,11 @@ class DataManager:
         for e in self.event_list:
             ret = spectrum.variable.get_wrapped_func(e)
             if ret is not None:
-                spectrum.hist.add_data(ret)
+                spectrum.add_data(ret)
     
     def load_spectra(self) -> None:
         for e in self.event_list:
             for _, spectrum in self.spectrum_list.items():
                 ret = spectrum.variable.get_wrapped_func(e)
                 if ret is not None:
-                    spectrum.hist.add_data(ret)
+                    spectrum.add_data(ret)
