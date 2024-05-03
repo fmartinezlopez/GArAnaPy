@@ -84,13 +84,13 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     # Each of the spectra now have a filled Histogram object
     # You can retrieve it and use the build-in get_histogram
     # method to plot it
-    hist_all_numu_energy = spec_all_numu_energy.hist
+    hist_all_numu_energy = spec_all_numu_energy.get_histogram()
     hist_all_numu_energy.set_label(r"True $\nu_{\mu}$ CC")
-    hist_all_numu_energy.get_histogram_errorbar(axs[0], color="blue")
+    hist_all_numu_energy.plot_histogram_errorbar(axs[0], color="blue")
 
-    hist_selected_numu_energy = spec_selected_numu_energy.hist
+    hist_selected_numu_energy = spec_selected_numu_energy.get_histogram()
     hist_selected_numu_energy.set_label(r"Selected $\nu_{\mu}$ CC")
-    hist_selected_numu_energy.get_histogram(axs[0], color="red")
+    hist_selected_numu_energy.plot_histogram(axs[0], color="red")
 
     axs[0].set_ylabel("Counts", fontsize=16, labelpad=10, loc="top")
     axs[0].tick_params(axis='both', which='major', labelsize=14)
@@ -99,7 +99,7 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
 
     # Ratios of two histograms can be created easily with histogram_ratio
     ratio_histogram = plotting.histogram_ratio(hist_selected_numu_energy, hist_all_numu_energy)
-    ratio_histogram.get_histogram_errorbar(axs[1], color="black")
+    ratio_histogram.plot_histogram_errorbar(axs[1], color="black")
 
     axs[1].set_xlabel("Neutrino energy [GeV]", fontsize=16, labelpad=10, loc="right")
     axs[1].set_ylabel(r"$\varepsilon$", fontsize=16, labelpad=10, loc="top")
