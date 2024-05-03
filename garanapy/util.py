@@ -82,3 +82,7 @@ def points_in_cylinder(pt1: np.array, pt2: np.array, r: float, q: np.array) -> b
     const = r * np.linalg.norm(vec)
     n = q.shape[0]
     return np.dot(q - pt1, vec) >= 0 and np.dot(q - pt2, vec) <= 0 and np.linalg.norm(np.cross(q - pt1, vec)) <= const
+
+# We're going to use this a lot, so better to have a shortcut
+def in_fiducial(p: np.array) -> bool:
+    return points_in_cylinder(pt1_fid, pt2_fid, TPCFidRadius, p)

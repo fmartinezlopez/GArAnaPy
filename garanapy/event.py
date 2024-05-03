@@ -18,7 +18,7 @@ class Neutrino:
         self.cc   = bool(e.CCNC[0]-1)
         self.energy = np.sqrt(np.square(e.MCnuPX)+np.square(e.MCnuPY)+np.square(e.MCnuPZ))[0]
         self.position = np.array([e.MCVertexX[0], e.MCVertexY[0], e.MCVertexZ[0]])
-        self.contained = util.points_in_cylinder(util.pt1_fid, util.pt2_fid, util.TPCFidRadius, self.position)
+        self.contained = util.in_fiducial(self.position)
 
     def __str__(self) -> str:
         return (f"    Type:   {self.type}\n"
