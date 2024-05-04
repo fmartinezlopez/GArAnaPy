@@ -26,14 +26,14 @@ class Variable:
         except KeyError:
             raise KeyError("Input function for Variable object was not properly type hinted!")
 
-        self.func = func
-        self.args = args
+        self.func  = func
+        self.args  = args
 
     def get_wrapped_func(self, e: event.Event):
         return self.func(e, *self.args)
     
 class Spectrum:
-    def __init__(self, variable, bins) -> None:
+    def __init__(self, variable: Variable, bins) -> None:
         self.variable = variable
         self.hist = plotting.Histogram(bins=bins)
         self.data = []
@@ -76,12 +76,30 @@ class DataManager:
     def load_spectrum(self, spectrum: Spectrum) -> None:
         for e in self.event_list:
             ret = spectrum.variable.get_wrapped_func(e)
-            if ret is not None:
-                spectrum.add_data(ret)
+            try:
+                iterator = iter(ret)
+            except TypeError:
+                # Simple variable
+                if ret is not None:
+                    spectrum.add_data(ret)
+            else:
+                # MultiVariable
+                for val in iterator:
+                    if val is not None:
+                        spectrum.add_data(val)
     
     def load_spectra(self) -> None:
         for e in self.event_list:
             for _, spectrum in self.spectrum_list.items():
                 ret = spectrum.variable.get_wrapped_func(e)
-                if ret is not None:
-                    spectrum.add_data(ret)
+                try:
+                    iterator = iter(ret)
+                except TypeError:
+                    # Simple variable
+                    if ret is not None:
+                        spectrum.add_data(ret)
+                else:
+                    # MultiVariable
+                    for val in iterator:
+                        if val is not None:
+                            spectrum.add_data(val)
