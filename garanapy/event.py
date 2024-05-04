@@ -34,6 +34,9 @@ class MCParticle:
         self.pdg = e.GPartPdg[idx]
         self.status = e.GPartStatus[idx]
 
+        self.energy = e.GPartE[idx]
+        self.mass   = e.GPartMass[idx]
+
     def __str__(self) -> str:
         return (f"    PDG:    {self.pdg}\n"
                 f"    Status: {self.status}"
