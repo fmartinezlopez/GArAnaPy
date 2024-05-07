@@ -3,7 +3,7 @@ import uproot
 import pickle
 
 import inspect
-from typing import List, Callable, Union
+from typing import List, Callable, Union, Tuple
 from pathlib import Path
 
 from rich.progress import track
@@ -16,7 +16,9 @@ def create_event(e):
     return event.Event(e)
 
 class Variable:
-    def __init__(self, func: Callable, *args) -> None:
+    def __init__(self,
+                 func: Callable,
+                 *args) -> None:
 
         first_arg_name = inspect.getfullargspec(func).args[0] # get name of first argument in func
         try:
@@ -29,23 +31,60 @@ class Variable:
         self.func  = func
         self.args  = args
 
-    def get_wrapped_func(self, e: event.Event):
+    def get_wrapped_func(self,
+                         e: event.Event):
         return self.func(e, *self.args)
     
 class Spectrum:
-    def __init__(self, variable: Variable, binning: plotting.Binning) -> None:
+    def __init__(self,
+                 variable: Variable,
+                 binning: plotting.Binning) -> None:
+        
         self.variable = variable
         self.hist = plotting.Histogram(binning=binning)
         self.data = []
 
-    def add_data(self, data_point: Union[int, float]) -> None:
+    def add_data(self,
+                 data_point: Union[int, float]) -> None:
+        
         self.data.append(data_point)
 
-    def set_binning(self, binning: plotting.Binning) -> None:
+    def set_binning(self,
+                    binning: plotting.Binning) -> None:
+        
         self.hist = plotting.Histogram(binning=binning)
 
     def get_histogram(self) -> plotting.Histogram:
+
         self.hist.make_hist(self.data)
+        return self.hist
+    
+class MultiSpectrum(Spectrum):
+    def add_data(self,
+                 data_points: List[float]) -> None:
+        
+        self.data.extend(data_points)
+    
+class Spectrum2D(Spectrum):
+    def __init__(self,
+                 variable: Variable,
+                 binning_x: plotting.Binning,
+                 binning_y: plotting.Binning) -> None:
+        
+        self.variable = variable
+        self.hist = plotting.Histogram2D(binning_x=binning_x, binning_y=binning_y)
+        self.data_x = []
+        self.data_y= []
+
+    def add_data(self,
+                 data_point: Tuple[int, float]) -> None:
+        
+        self.data_x.append(data_point[0])
+        self.data_y.append(data_point[1])
+
+    def get_histogram(self) -> plotting.Histogram2D:
+        
+        self.hist.make_hist(self.data_x, self.data_y)
         return self.hist
     
 class DataManager:
@@ -76,30 +115,12 @@ class DataManager:
     def load_spectrum(self, spectrum: Spectrum) -> None:
         for e in self.event_list:
             ret = spectrum.variable.get_wrapped_func(e)
-            try:
-                iterator = iter(ret)
-            except TypeError:
-                # Simple variable
-                if ret is not None:
-                    spectrum.add_data(ret)
-            else:
-                # MultiVariable
-                for val in iterator:
-                    if val is not None:
-                        spectrum.add_data(val)
+            if ret is not None:
+                spectrum.add_data(ret)
     
     def load_spectra(self) -> None:
         for e in self.event_list:
             for _, spectrum in self.spectrum_list.items():
                 ret = spectrum.variable.get_wrapped_func(e)
-                try:
-                    iterator = iter(ret)
-                except TypeError:
-                    # Simple variable
-                    if ret is not None:
-                        spectrum.add_data(ret)
-                else:
-                    # MultiVariable
-                    for val in iterator:
-                        if val is not None:
-                            spectrum.add_data(val)
+                if ret is not None:
+                    spectrum.add_data(ret)
