@@ -97,7 +97,7 @@ def get_reco_pion_ke(event: event.Event,
 
         for p in event.recoparticle_list:
             if p.id == muon_id: continue
-            
+
             if true_pdg == -1:
                 pass
             elif np.abs(p.mc_pdg) != true_pdg:
@@ -131,6 +131,30 @@ def get_reco_pion_ke(event: event.Event,
         return pion_ke
     else:
         return None
+    
+
+def count_pion_mult(event: event.Event,
+                    muon_cut: float,
+                    p_min: float,
+                    proton_calo_cut: float,
+                    proton_tof_cut: float,
+                    delta_calo: float,
+                    distance_cut: float):
+    
+    true_pion_ke = get_true_pion_ke(event, muon_cut)
+    reco_pion_ke = get_reco_pion_ke(event, muon_cut, -1, p_min, proton_calo_cut, proton_tof_cut, delta_calo, distance_cut)
+
+    if true_pion_ke is None:
+        n_true_pion = 0
+    else:
+        n_true_pion = len(true_pion_ke)
+
+    if true_pion_ke is None:
+        n_reco_pion = 0
+    else:
+        n_reco_pion = len(reco_pion_ke)
+
+    return n_true_pion, n_reco_pion
 
 # ---------------------------------------------------------------------------- #
 #                            Main function goes here                           #
@@ -159,14 +183,21 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     kinetic_energy_bins = plotting.Binning(5e-3, 1e2, 30, log=True)
 
     var_true_pion_ke  = datamanager.Variable(get_true_pion_ke, 0.5)
-    spec_true_pion_ke = datamanager.Spectrum(var_true_pion_ke, kinetic_energy_bins)
+    spec_true_pion_ke = datamanager.MultiSpectrum(var_true_pion_ke, kinetic_energy_bins)
     data_manager.add_spectrum(spec_true_pion_ke, "true_pion_ke")
 
     spec_reco_pion_ke = {}
     for p in [11, 13, 211, 321, 2212]:
         var_reco_pion_ke  = datamanager.Variable(get_reco_pion_ke, 0.5, p, 0.035, 0.8, 0.8, 0.1, 100.)
-        spec_reco_pion_ke[p] = datamanager.Spectrum(var_reco_pion_ke, kinetic_energy_bins)
+        spec_reco_pion_ke[p] = datamanager.MultiSpectrum(var_reco_pion_ke, kinetic_energy_bins)
         data_manager.add_spectrum(spec_reco_pion_ke[p], f'reco_pion_ke_{p}')
+
+    multiplicity_bins = plotting.Binning(-0.5, 3.5, 5)
+    multiplicity_bins.add_bin(100.)
+
+    var_pion_mult = datamanager.Variable(count_pion_mult, 0.5, 0.035, 0.8, 0.8, 0.1, 100.)
+    spec_pion_mult = datamanager.Spectrum2D(var_pion_mult, multiplicity_bins, multiplicity_bins)
+    data_manager.add_spectrum(spec_pion_mult, "pion_mult")
 
     # Once all the spectra have been added we can load them
     data_manager.load_spectra()
@@ -193,6 +224,26 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     ax.legend(fontsize=14, loc="upper right")
 
     plt.savefig("numu_cc_pion_ke.pdf", dpi=500, bbox_inches='tight')
+    plt.show()
+
+    fig, ax = plt.subplots(figsize=(7,5))
+
+    label_pos = np.arange(0.0, 4.5, 1.0)
+    labels = [str(i)+r"$\pi^{\pm}$" for i in range(4)]
+    labels.append(r"$\geq$ 4 $\pi^{\pm}$")
+
+    hist_pion_mult = spec_pion_mult.get_histogram()
+    hist_pion_mult.plot_histogram(ax)
+
+    ax.set_xticks(label_pos)
+    ax.set_xticklabels(labels, fontsize=14)
+    ax.set_yticks(label_pos)
+    ax.set_yticklabels(labels, rotation=90, va='center', fontsize=14)
+
+    ax.set_xlabel(r"GENIE $\pi^{\pm}$ Multiplicity", fontsize=14, labelpad=10, loc="right")
+    ax.set_ylabel(r"Reco $\pi^{\pm}$ Multiplicity", fontsize=14, labelpad=10, loc="top")
+
+    plt.savefig("numu_cc_pion_multiplicity.pdf", dpi=500, bbox_inches='tight')
     plt.show()
 
 if __name__ == "__main__":
