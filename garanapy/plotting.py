@@ -1,5 +1,7 @@
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+from colorspacious import cspace_converter
 
 plt.style.use("dune")
 mono = {'family' : 'monospace'}
@@ -41,7 +43,7 @@ class Binning:
 
         self.make_bins()
 
-    def make_bins(self):
+    def make_bins(self) -> None:
         if self.log:
             self.bins = np.logspace(np.log10(self.xmin),
                                     np.log10(self.xmax),
@@ -50,9 +52,16 @@ class Binning:
             self.bins = np.linspace(self.xmin,
                                     self.xmax,
                                     self.nbins)
+    
+    def add_bin(self, bin) -> None:
+        self.bins = np.append(self.bins, bin)
 
 class Histogram:
-    def __init__(self, binning: Binning, counts = None, label = None) -> None:
+    def __init__(self,
+                 binning: Binning,
+                 counts = None,
+                 label = None) -> None:
+        
         self.binning = binning
 
         if counts is not None:
@@ -101,7 +110,9 @@ class Histogram:
 
         ax.errorbar(bin_centres(self.binning.bins), self.counts, xerr=np.diff(self.binning.bins) / 2, yerr=_yerr, linestyle="None", elinewidth=1.5, label=self.label, **kwargs)
 
-def histogram_ratio(a_hist: Histogram, another_hist: Histogram) -> Histogram:
+def histogram_ratio(a_hist: Histogram,
+                    another_hist: Histogram) -> Histogram:
+    
     if (a_hist.binning.bins != another_hist.binning.bins).all():
         raise ValueError("Histograms have different binnings!")
     
@@ -122,3 +133,66 @@ def stack_histograms(hist_collection, ax):
         stack.set_label(hist_collection[key_list[i]].label)
         stack.plot_histogram(ax, zorder=order, fill=True)
         order -= 1
+
+class Histogram2D:
+    def __init__(self,
+                 binning_x: Binning,
+                 binning_y: Binning,
+                 counts = None) -> None:
+        
+        self.binning_x = binning_x
+        self.binning_y = binning_y
+
+        if counts is not None:
+            try:
+                iterator = iter(counts)
+            except TypeError:
+                self.counts = np.ones((self.binning_x.nbins-1, self.binning_y.nbins-1))*counts
+            else:
+                self.counts = counts
+        else:
+            self.counts = np.empty((self.binning_x.nbins-1, self.binning_y.nbins-1))
+
+    def make_hist(self, data_x, data_y) -> None:
+        counts, _, _ = np.histogram2d(data_x,
+                                      data_y,
+                                      bins=[self.binning_x.bins, self.binning_y.bins])
+        self.counts = counts
+        self.yerr = np.sqrt(counts)
+
+    def plot_histogram(self,
+                       ax=None,
+                       cmap="inferno",
+                       vmin=0.0,
+                       vmax=1.0,
+                       col_norm=True,
+                       row_norm=False,
+                       annotations=True,
+                       **kwargs) -> None:
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        entries = self.counts.copy()
+
+        if col_norm:
+            for k in range(self.binning_x.nbins):
+                entries[k] = entries[k]/np.sum(entries[k])
+        elif row_norm:
+            for k in range(self.binning_y.nbins):
+                entries[:,k] = entries[:,k]/np.sum(entries[:,k])
+
+        norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+        cmap = matplotlib.cm.get_cmap(cmap)
+
+        ax.imshow(entries.T, origin='lower', cmap=cmap, norm=norm, **kwargs)
+
+        if annotations:
+            for m in range(self.binning_x.nbins):
+                for n in range(self.binning_y.nbins):
+                    # Little trick so all annotations can be visible
+                    rgb = cmap(norm(entries[m, n]))[:1]
+                    light = cspace_converter("sRGB1", "CAM02-UCS")(rgb)[0]
+                    tcolor = "k" if light >= 75 else "w"
+                    ax.text(m, n, "{:.2f}".format(entries[m, n]),
+                                ha="center", va="center", color=tcolor,
+                                fontsize=12)
