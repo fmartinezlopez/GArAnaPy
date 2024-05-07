@@ -65,10 +65,22 @@ class RecoParticle:
         self.Nmuid      = e.RecoNHitsMuID[idx]
         self.muon_score = e.RecoMuonScore[idx]
 
+        self.ecaled_end = e.RecoTrackEndECALed[idx]
+
         self.tof_beta         = e.RecoECALToFBeta[idx]
         self.proton_tof_score = e.RecoProtonToFScore[idx]
 
         self.charge = e.RecoCharge[idx]
+
+        self.vertexed_end = e.RecoTrackEndVertexed[idx]
+
+        self.track_start_x = e.TrackStartX[idx]
+        self.track_start_y = e.TrackStartY[idx]
+        self.track_start_z = e.TrackStartZ[idx]
+
+        self.track_end_x = e.TrackEndX[idx]
+        self.track_end_y = e.TrackEndY[idx]
+        self.track_end_z = e.TrackEndZ[idx]
 
     def set_pid(self, pid) -> None:
         self.pid = pid
@@ -95,6 +107,9 @@ class Event:
         for i in range(self.n_recoparticle):
             self.recoparticle_list.append(RecoParticle(e, i))
 
+        self.bad_direction = False
+        self.set_direction()
+
         #self.has_muon = False
         #self.mc_primary_muon()
 
@@ -111,3 +126,78 @@ class Event:
 
     def __repr__(self) -> str:
         return str(self)
+    
+    # Temporary solution to get the start position of the reco particles into the Event
+    def get_candidate_vertex(self) -> np.array:
+
+        # Try first to get ECALed particles
+        particles_ecaled   = [(p.id, p.Necal)    for p in self.recoparticle_list if p.ecaled_end != -1]
+        # Try also to get vertexed particles
+        particles_vertexed = [(p.id, p.momentum) for p in self.recoparticle_list if p.vertexed_end != -1]
+
+        if (len(particles_ecaled) > 0):
+            particles_ecaled = sorted(particles_ecaled, key=lambda x: x[1])
+            ecaled_ref_particle = self.get_recoparticle(particles_ecaled[0][0])
+
+            # If the track end ECALed is the End (0), then the true begin is the Begin (0)
+            if(ecaled_ref_particle.ecaled_end == 0):
+                vertex_candidate_pos = np.array([ecaled_ref_particle.track_start_x,
+                                                 ecaled_ref_particle.track_start_y,
+                                                 ecaled_ref_particle.track_start_z])
+            # Else, if the end ECALed is the Begin (1), the true begin is the End (0)
+            elif(ecaled_ref_particle.ecaled_end == 1):
+                vertex_candidate_pos = np.array([ecaled_ref_particle.track_end_x,
+                                                 ecaled_ref_particle.track_end_y,
+                                                 ecaled_ref_particle.track_end_z])
+
+        elif (len(particles_vertexed) > 0):
+            particles_vertexed = sorted(particles_vertexed, key=lambda x: x[1])
+            vertexed_ref_particle = self.get_recoparticle(particles_vertexed[0][0])
+
+            # If the track end Vertexed is the Begin (1), then the true begin is the Begin (1)
+            if(vertexed_ref_particle.vertexed_end == 1):
+                vertex_candidate_pos = np.array([vertexed_ref_particle.track_start_x,
+                                                 vertexed_ref_particle.track_start_y,
+                                                 vertexed_ref_particle.track_start_z])
+            # Else, if the end Vertexed is the End (0), the true begin is the End (0)
+            elif(vertexed_ref_particle.vertexed_end == 0):
+                vertex_candidate_pos = np.array([vertexed_ref_particle.track_end_x,
+                                                 vertexed_ref_particle.track_end_y,
+                                                 vertexed_ref_particle.track_end_z])
+
+        else:
+            vertex_candidate_pos = np.array([None,
+                                             None,
+                                             None])
+            
+        return vertex_candidate_pos
+    
+    def set_direction(self) -> None:
+
+        vertex_candidate_pos = self.get_candidate_vertex()
+
+        if (vertex_candidate_pos == None).all():
+            self.bad_direction = True
+            return
+
+        for p in self.recoparticle_list:
+
+            particle_begin = np.array([p.track_start_x,
+                                       p.track_start_y,
+                                       p.track_start_z])
+
+            particle_end   = np.array([p.track_end_x,
+                                       p.track_end_y,
+                                       p.track_end_z])
+
+            distance_begin = np.linalg.norm(particle_begin-vertex_candidate_pos)
+            distance_end   = np.linalg.norm(particle_end-vertex_candidate_pos)
+
+            if (distance_begin <= distance_end):
+                p.start_x = particle_begin[0]
+                p.start_y = particle_begin[1]
+                p.start_z = particle_begin[2]
+            else:
+                p.start_x = particle_end[0]
+                p.start_y = particle_end[1]
+                p.start_z = particle_end[2]
