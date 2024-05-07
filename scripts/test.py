@@ -59,7 +59,7 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
         raise ValueError("Invalid input type!")
 
     # Create some binning
-    energy_bins = np.linspace(0.0, 8.0, 40)
+    energy_bins = plotting.Binning(0.0, 8.0, 40)
 
     # For each distribution you want to extract, you need to create a Variable object...
     var_all_numu_energy  = datamanager.Variable(get_all_numu_energy, 14, True)

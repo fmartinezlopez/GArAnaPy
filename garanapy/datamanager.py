@@ -33,16 +33,16 @@ class Variable:
         return self.func(e, *self.args)
     
 class Spectrum:
-    def __init__(self, variable: Variable, bins) -> None:
+    def __init__(self, variable: Variable, binning: plotting.Binning) -> None:
         self.variable = variable
-        self.hist = plotting.Histogram(bins=bins)
+        self.hist = plotting.Histogram(binning=binning)
         self.data = []
 
     def add_data(self, data_point: Union[int, float]) -> None:
         self.data.append(data_point)
 
-    def set_binning(self, bins) -> None:
-        self.hist = plotting.Histogram(bins=bins)
+    def set_binning(self, binning: plotting.Binning) -> None:
+        self.hist = plotting.Histogram(binning=binning)
 
     def get_histogram(self) -> plotting.Histogram:
         self.hist.make_hist(self.data)
