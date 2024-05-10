@@ -86,3 +86,100 @@ def points_in_cylinder(pt1: np.array, pt2: np.array, r: float, q: np.array) -> b
 # We're going to use this a lot, so better to have a shortcut
 def in_fiducial(p: np.array) -> bool:
     return points_in_cylinder(pt1_fid, pt2_fid, TPCFidRadius, p)
+
+# ---------------------------------------------------------------------------- #
+#                              Useful definitions                              #
+# ---------------------------------------------------------------------------- #
+
+# Masses of the particles (in GeV)
+m_electron     =   0.511*1e-3
+m_muon         = 105.658*1e-3
+m_neutral_pion = 134.977*1e-3
+m_pion         = 139.570*1e-3
+m_kaon         = 493.677*1e-3
+m_proton       = 938.272*1e-3
+
+particle_names = {11:   r"$e^{\pm}$",
+                  13:   r"$\mu^{\pm}$",
+                  22:   r"$\gamma$",
+                  111:  r"$\pi^{0}$",
+                  211:  r"$\pi^{\pm}$",
+                  321:  r"$K^{\pm}$",
+                  2212: r"$p$"}
+
+particle_masses = {11:   m_electron,
+                   13:   m_muon,
+                   22:   0.0,
+                   111:  m_neutral_pion,
+                   211:  m_pion,
+                   321:  m_kaon,
+                   2212: m_proton}
+
+def total_energy(pdg: int, momentum: float) -> float:
+
+    """ Return total energy of particle from PDG number and momentum
+
+    Args:
+        pdg (int):        PDG code of particle
+        momentum (float): momentum of particle (in GeV)
+
+    Returns:
+        float: total energy of particle (in GeV)
+    """
+    return np.sqrt(np.square(particle_masses[pdg]) + np.square(momentum))
+
+def kinetic_energy(pdg: int, momentum: float) -> float:
+
+    """ Return kinetic energy of particle from PDG number and momentum
+
+    Args:
+        pdg (int):        PDG code of particle
+        momentum (float): momentum of particle (in GeV)
+
+    Returns:
+        float: kinetic energy of particle (in GeV)
+    """
+    return total_energy(pdg, momentum) - particle_masses[pdg]
+
+# ---------------------------------------------------------------------------- #
+#             All the stuff needed for ALEPH dE/dx parametrisation             #
+# ---------------------------------------------------------------------------- #
+
+p1 = 3.30
+p2 = 8.80
+p3 = 0.27
+p4 = 0.75
+p5 = 0.82
+
+def beta_momentum(p: float,
+                  m: float):
+    
+    """ Relativistic beta factor from momentum and mass
+
+    Args:
+        p (float): momentum of particle
+        m (float): mass of particle
+
+    Returns:
+        float: beta factor
+    """
+    return (p/m)/np.sqrt(1+np.square(p/m))
+
+def gamma_momentum(p, m):
+    
+    """ 
+
+    Args:
+        p (_type_): _description_
+        m (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    return np.sqrt(1+np.square(p/m))
+
+def aleph_param_momentum(x, m, p1, p2, p3, p4, p5):
+    return p1*(p2-np.power(beta_momentum(x, m), p4)-np.log(p3+1/np.power(beta_momentum(x, m)*gamma_momentum(x, m), p5)))/np.power(beta_momentum(x, m), p4)
+
+def aleph_default(x, m):
+    return aleph_param_momentum(x, m, p1, p2, p3, p4, p5)
