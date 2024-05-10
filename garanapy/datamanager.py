@@ -7,6 +7,7 @@ from typing import List, Callable, Union, Tuple
 from pathlib import Path
 
 from rich.progress import track
+from rich import print as rprint
 
 from garanapy import util
 from garanapy import plotting
@@ -109,8 +110,9 @@ class DataManager:
             tree = file.get(tree_name)
             self.event_list.extend(list(map(create_event, tree.arrays())))
 
-    def add_spectrum(self, variable: Variable, key: str) -> None:
-        self.spectrum_list[key] = variable
+    def add_spectrum(self, spectrum: Spectrum, key: str) -> None:
+        self.spectrum_list[key] = spectrum
+        rprint("Adding spectrum: ", key, " [", type(spectrum), "]")
 
     def load_spectrum(self, spectrum: Spectrum) -> None:
         for e in self.event_list:
@@ -119,7 +121,7 @@ class DataManager:
                 spectrum.add_data(ret)
     
     def load_spectra(self) -> None:
-        for e in self.event_list:
+        for e in track(self.event_list, description="Loading spectra..."):
             for _, spectrum in self.spectrum_list.items():
                 ret = spectrum.variable.get_wrapped_func(e)
                 if ret is not None:
