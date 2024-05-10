@@ -5,12 +5,17 @@ import re
 from typing import List
 
 import numpy as np
+import pickle
+
+from garanapy import datamanager
+from garanapy import idle
 
 # ---------------------------------------------------------------------------- #
 #                         Useful code to open the data                         #
 # ---------------------------------------------------------------------------- #
 
 def get_datafile_list(data_path: str, match_exprs: List[str] = ["*.root"]) -> List[str]:
+
     """ Get a list with the names of the files in a certain directory
         containing a substring from a list.
 
@@ -29,6 +34,7 @@ def get_datafile_list(data_path: str, match_exprs: List[str] = ["*.root"]) -> Li
     return sorted(files, reverse=True, key=lambda f: os.path.getmtime(os.path.join(data_path, f)))
 
 def sorted_nicely(files: List[str]) -> List[str]:
+
     """ Sort the given iterable in the way that humans expect.
 
     Args:
@@ -41,6 +47,24 @@ def sorted_nicely(files: List[str]) -> List[str]:
     convert = lambda text: int(text) if text.isdigit() else text 
     alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
     return sorted(files, key = alphanum_key)
+
+def open_pickle_data(file: str) -> datamanager.DataManager:
+
+    """ Open DataManager instance from pickle file
+
+    Args:
+        file (str): Path to pickle file with saved DataManager instance
+
+    Returns:
+        datamanager.DataManager: Previously stored instance of DataManager
+    """
+
+    loop = idle.Idle("Opening pickled data...", "Finished opening data!")
+    loop.start_idle()
+    with open(file, 'rb') as input:
+            data_manager = pickle.load(input)
+    loop.end_idle()
+    return data_manager
 
 # ---------------------------------------------------------------------------- #
 #                             Geometry-related code                            #
@@ -166,7 +190,7 @@ def beta_momentum(p: float,
     return (p/m)/np.sqrt(1+np.square(p/m))
 
 def gamma_momentum(p, m):
-    
+
     """ 
 
     Args:
