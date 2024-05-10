@@ -10,6 +10,7 @@ from garanapy import util
 from garanapy import event
 from garanapy import datamanager
 from garanapy import plotting
+from garanapy import idle
 
 # ---------------------------------------------------------------------------- #
 #      Place here the functions that will retrieve the data for each event     #
@@ -82,14 +83,16 @@ def get_mc_erec(event: event.Event,
     
 def get_true_bias(event: event.Event,
                   muon_cut: float,
-                  pion_mass: bool) -> Union[float, None]:
+                  pion_mass: bool,
+                  frac_bias: bool) -> Union[float, None]:
     
-    """ Return true energy bias for events passing the numu CC cuts
+    """ Return true energy (maybe fractional) bias for events passing the numu CC cuts
 
     Args:
         event (event.Event): event to process
         muon_cut (float):    value of muon score to use for numu CC selection
         pion_mass (bool):    add pion mass in reconstructed energy?
+        frac_bias (bool):    compute fractional bias?
 
     Returns:
         Union[float, None]: true neutrino energy bias
@@ -101,7 +104,10 @@ def get_true_bias(event: event.Event,
 
         mc_erec = get_mc_erec(event, pion_mass)
 
-        return (mc_erec-event.nu.energy)*1e3 # in MeV
+        if frac_bias:
+            return (event.nu.energy-mc_erec)/event.nu.energy
+        else:
+            return (mc_erec-event.nu.energy)*1e3 # in MeV
     else:
         return None
     
@@ -226,13 +232,14 @@ def get_reco_erec(event: event.Event,
 
     return reco_erec
     
-def get_reco_frac_bias(event: event.Event,
-                       muon_cut: float,
-                       pion_mass: bool,
-                       proton_calo_cut: float,
-                       proton_tof_cut: float,
-                       delta_calo: float,
-                       distance_cut: float) -> Union[float, None]:
+def get_reco_bias(event: event.Event,
+                  muon_cut: float,
+                  pion_mass: bool,
+                  frac_bias: bool,
+                  proton_calo_cut: float,
+                  proton_tof_cut: float,
+                  delta_calo: float,
+                  distance_cut: float) -> Union[float, None]:
     
     """ Returns the reconstructed nu energy fractional bias,
         i.e. (E_true - E_reco)/E_true, for each selected event
@@ -241,6 +248,7 @@ def get_reco_frac_bias(event: event.Event,
         event (event.Event):     event to process
         muon_cut (float):        value of muon score to use for numu CC selection
         pion_mass (bool):        add charged pion mass in nu energy?
+        frac_bias (bool):        compute fractional bias?
         proton_calo_cut (float): value of proton dE/dx score to use for pion selection
         proton_tof_cut (float):  value of proton ToF score to use for pion selection
         delta_calo (float):      allow % deviation around pion dE/dx ALEPH prediction
@@ -262,7 +270,10 @@ def get_reco_frac_bias(event: event.Event,
                                   delta_calo,
                                   distance_cut)
 
-        return (event.nu.energy-reco_erec)/event.nu.energy
+        if frac_bias:
+            return (event.nu.energy-reco_erec)/event.nu.energy
+        else:
+            return (reco_erec-event.nu.energy)*1e3 # in MeV
     else:
         return None
 
@@ -286,19 +297,18 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
         data_manager.open_events(data_path, n_files=n_files)
     # ...or just load it from a .pickle file
     elif input_type == "pickle":
-        with open(data_path, 'rb') as input:
-            data_manager = pickle.load(input)
+        data_manager = util.open_pickle_data(data_path)
     else:
         raise ValueError("Invalid input type!")
 
     # Energy bias binning (MeV)
     energy_bias_bins = plotting.Binning(-1000.0, 0.0, 50)
 
-    var_true_bias  = datamanager.Variable(get_true_bias, 0.5, True)
+    var_true_bias  = datamanager.Variable(get_true_bias, 0.5, True, False)
     spec_true_bias = datamanager.Spectrum(var_true_bias, energy_bias_bins)
     data_manager.add_spectrum(spec_true_bias, "true_bias")
 
-    var_true_bias_no_pion  = datamanager.Variable(get_true_bias, 0.5, False)
+    var_true_bias_no_pion  = datamanager.Variable(get_true_bias, 0.5, False, False)
     spec_true_bias_no_pion = datamanager.Spectrum(var_true_bias_no_pion, energy_bias_bins)
     data_manager.add_spectrum(spec_true_bias_no_pion, "true_bias_no_pion")
 
@@ -307,7 +317,7 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     energy_frac_bias_bins = plotting.Binning(-2.0, 2.0, 50)
 
     """""
-    Default parameters for get_reco_frac_bias
+    Default parameters for get_reco_bias
     
         Inputs for numu CC selection:
     
@@ -316,6 +326,7 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
         Inputs for energy reconstruction:
     
             pion_mass       = True   [bool]
+            frac_bias       = True   [bool]
     
         Inputs for pion selection:
     
@@ -325,9 +336,13 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
             distance_cut    = 100.   [cm]
     """""
 
-    var_reco_frac_bias  = datamanager.Variable(get_reco_frac_bias, 0.5, True, 0.8, 0.8, 0.1, 100.)
+    var_reco_frac_bias  = datamanager.Variable(get_reco_bias, 0.5, True, True, 0.8, 0.8, 0.1, 100.)
     spec_reco_frac_bias = datamanager.Spectrum(var_reco_frac_bias, energy_frac_bias_bins)
     data_manager.add_spectrum(spec_reco_frac_bias, "reco_frac_bias")
+
+    var_true_frac_bias  = datamanager.Variable(get_true_bias, 0.5, True, True)
+    spec_true_frac_bias = datamanager.Spectrum(var_true_frac_bias, energy_frac_bias_bins)
+    data_manager.add_spectrum(spec_true_frac_bias, "true_frac_bias")
 
     # Once all the spectra have been added we can load them
     data_manager.load_spectra()
@@ -362,14 +377,20 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     fig, ax = plt.subplots(figsize=(7,5))
 
     hist_reco_frac_bias = spec_reco_frac_bias.get_histogram()
+    hist_reco_frac_bias.set_label("Reco")
     hist_reco_frac_bias.plot_histogram(ax, color="dodgerblue", zorder=100)
+
+    hist_true_frac_bias = spec_true_frac_bias.get_histogram()
+    hist_true_frac_bias.set_label("True")
+    hist_true_frac_bias.plot_histogram_errorbar(ax, color="black", zorder=101)
 
     ax.set_xlabel(r"$\frac{E_{\nu}^{true} - E_{\nu}^{reco}}{E_{\nu}^{true}}$", fontsize=16, labelpad=10, loc="right")
     ax.set_ylabel("Counts", fontsize=16, labelpad=10, loc="top")
     ax.tick_params(axis='both', which='major', labelsize=14)
     ax.grid()
+    ax.legend(fontsize=14, loc="upper left")
 
-    plt.savefig("numu_cc_reco_energy_frac_bias.pdf", dpi=500, bbox_inches='tight')
+    plt.savefig("numu_cc_energy_frac_bias.pdf", dpi=500, bbox_inches='tight')
     plt.show()
 
 if __name__ == "__main__":
