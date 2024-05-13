@@ -1,3 +1,4 @@
+import re
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -33,6 +34,62 @@ def bin_centres(bins):
         np.array, list: centres of corresponding bins
     """
     return bins[:-1] + np.diff(bins) / 2
+
+def get_nice_param(param, label, units="", newline=True):
+    value = param.value
+    error = param.stderr
+
+    error_str = '%s' % float('%.2g' % error)
+    error_str = str(error_str)
+    error_exp_pos = error_str.find("e")
+    if (error_exp_pos != -1):
+        error_exp = int(error_str[error_exp_pos+1:])
+    
+    s = "".join(re.findall(r'\d+', error_str))
+    if (len([i for i in range(len(s)) if not s.startswith("0", i)]) == 1):
+        error_str = error_str+"0"
+
+    exponent = False
+    value_str = str(value)
+    value_exp_pos = value_str.find("e")
+    if (value_exp_pos != -1):
+        exponent = True
+        value_exp = int(value_str[value_exp_pos+1:])
+        error_str = '%s' % float('%.2g' % (float(error_str[:error_exp_pos])*np.power(10.0, (error_exp-value_exp))))
+
+
+    value_str = value_str[:value_str.find(".")]+value_str[value_str.find("."):][:len(error_str)-1]
+
+    if exponent:
+        f'{value_str} '+r"\pm"+f' {error_str}'
+
+    if newline:
+        return label+f'{value_str} '+r"\pm"+f' {error_str}'+units+f'\n'
+    else:
+        return label+f'{value_str} '+r"\pm"+f' {error_str}'+units
+
+def plot_fit_summary(ax, results, x=0.05, y=0.95, name_dict=None):
+
+    props = dict(boxstyle='square',
+                 edgecolor="red",
+                 facecolor="white",
+                 alpha=1.0,
+                 linewidth=0.0)
+
+    textstr = r"\begin{eqnarray*} "+r"\chi^{2}/ndf&=& "+f'{"{:.3f}".format(results.chisqr)}/{results.nfree}'+"\\\\"
+    
+    for param in [*results.params.values()]:
+        if param.vary:
+            
+            name = param.name
+            if name_dict is not None:
+                name = name_dict[name]
+            
+            textstr += get_nice_param(param, name+r" &=&", units="\\\\", newline=False)
+        
+    textstr += r"\end{eqnarray*}"
+
+    ax.text(x, y, textstr, transform=ax.transAxes, fontsize=12, verticalalignment='top', horizontalalignment='left', bbox=props, fontdict=mono)
 
 class Binning:
     def __init__(self, xmin: float, xmax: float, nbins: int, log: bool = False) -> None:
