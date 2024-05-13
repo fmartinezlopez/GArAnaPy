@@ -40,3 +40,14 @@ class Idle:
     def end_idle(self):
         self.done_training = True
         rprint(f'[green]{self.finish_string}')
+
+class Process:
+    def __init__(self) -> None:
+        pass
+
+    def start_process(self) -> None:
+        rprint("\n[red]Welcome to the ROOT of all evil\n")
+        self.t0 = time.perf_counter()
+
+    def end_process(self) -> None:
+        rprint("Process finished in {:.2f} s".format(time.perf_counter()-self.t0))
