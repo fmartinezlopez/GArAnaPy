@@ -12,6 +12,20 @@ from garanapy import datamanager
 from garanapy import plotting
 from garanapy import idle
 
+from lmfit import Model
+
+# ---------------------------------------------------------------------------- #
+#                             Definitions for fits                             #
+# ---------------------------------------------------------------------------- #
+
+def gaussian(x, m, s, a):
+    return a*np.exp(-np.square((x-m)/s)/2.) # don't add normalisation term!
+
+def double_gaussian(x, m1, s1, a1, m2, s2, a2):
+    return gaussian(x, m1, s1, a1) + gaussian(x, m2, s2, a2)
+
+model = Model(double_gaussian)
+
 # ---------------------------------------------------------------------------- #
 #      Place here the functions that will retrieve the data for each event     #
 # ---------------------------------------------------------------------------- #
@@ -61,10 +75,12 @@ def get_mc_erec(event: event.Event,
     # Do you want to add the pion mass to the energy?
     if pion_mass:
         pdg_kinec_energy = [2212]
-        pdg_total_energy = [13, 22, 111]
+        #pdg_total_energy = [13, 22, 111, 211]
+        pdg_total_energy = [13, 211]
     else:
         pdg_kinec_energy = [211, 2212]
-        pdg_total_energy = [13, 22, 111, 211]
+        #pdg_total_energy = [13, 22, 111]
+        pdg_total_energy = [13]
 
     mc_erec = 0.0
 
@@ -276,6 +292,56 @@ def get_reco_bias(event: event.Event,
             return (reco_erec-event.nu.energy)*1e3 # in MeV
     else:
         return None
+    
+def get_bias(event: event.Event,
+             muon_cut: float,
+             pion_mass: bool,
+             frac_bias: bool,
+             proton_calo_cut: float,
+             proton_tof_cut: float,
+             delta_calo: float,
+             distance_cut: float) -> Union[float, None]:
+    
+    """ Returns the difference between the predictions of
+        E_rec using MCParticles or RecoParticles
+
+    Args:
+        event (event.Event):     event to process
+        muon_cut (float):        value of muon score to use for numu CC selection
+        pion_mass (bool):        add charged pion mass in nu energy?
+        frac_bias (bool):        compute fractional bias?
+        proton_calo_cut (float): value of proton dE/dx score to use for pion selection
+        proton_tof_cut (float):  value of proton ToF score to use for pion selection
+        delta_calo (float):      allow % deviation around pion dE/dx ALEPH prediction
+        distance_cut (float):    max distance from primary vertex to select primary pion (in cm)
+
+    Returns:
+        Union[float, None]:      neutrino energy fractional bias
+    """
+
+    muon_id = get_selected_numu(event, muon_cut)
+
+    if muon_id > 0:
+
+        reco_erec = get_reco_erec(event,
+                                  pion_mass,
+                                  muon_id,
+                                  proton_calo_cut,
+                                  proton_tof_cut,
+                                  delta_calo,
+                                  distance_cut)
+        
+        mc_erec = get_mc_erec(event,
+                              pion_mass)
+
+        if frac_bias:
+            return (mc_erec-reco_erec)/mc_erec
+        else:
+            return (reco_erec-mc_erec)*1e3 # in MeV
+    else:
+        return None
+    
+
 
 
 # ---------------------------------------------------------------------------- #
@@ -289,7 +355,15 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
               help="Select input file type", default='ROOT', show_default=True)
 @click.option('-n', '--n_files', type=int,
               help="Number of input files to load", default=-1, show_default=True)
-def cli(data_path: str, input_type: str, n_files: int) -> None:
+@click.option('-b', '--batch', is_flag=True,
+              help="Run in batch mode, don't open plots", default=False, show_default=True)
+@click.option('-i', '--interactive', is_flag=True,
+              help="Open interactive terminal before finishing", default=False, show_default=True)
+def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive: bool) -> None:
+
+    # Start process (for benchmarking)
+    process = idle.Process()
+    process.start_process()
 
     # Create DataManager object and load data...
     if input_type == "ROOT":
@@ -304,6 +378,7 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     # Energy bias binning (MeV)
     energy_bias_bins = plotting.Binning(-1000.0, 0.0, 50)
 
+    # Get the (absolute) energy bias using the MCParticle collection
     var_true_bias  = datamanager.Variable(get_true_bias, 0.5, True, False)
     spec_true_bias = datamanager.Spectrum(var_true_bias, energy_bias_bins)
     data_manager.add_spectrum(spec_true_bias, "true_bias")
@@ -311,6 +386,15 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     var_true_bias_no_pion  = datamanager.Variable(get_true_bias, 0.5, False, False)
     spec_true_bias_no_pion = datamanager.Spectrum(var_true_bias_no_pion, energy_bias_bins)
     data_manager.add_spectrum(spec_true_bias_no_pion, "true_bias_no_pion")
+
+    # Get the (absolute) energy bias using the RecoParticle collection
+    var_reco_bias  = datamanager.Variable(get_reco_bias, 0.5, True, False, 0.8, 0.8, 0.1, 100.)
+    spec_reco_bias = datamanager.Spectrum(var_reco_bias, energy_bias_bins)
+    data_manager.add_spectrum(spec_reco_bias, "reco_bias")
+
+    var_reco_bias_no_pion  = datamanager.Variable(get_reco_bias, 0.5, False, False, 0.8, 0.8, 0.1, 100.)
+    spec_reco_bias_no_pion = datamanager.Spectrum(var_reco_bias_no_pion, energy_bias_bins)
+    data_manager.add_spectrum(spec_reco_bias_no_pion, "reco_bias_no_pion")
 
     # For the reco, lets get the fractional bias: (True-Reco)/True
     # Create an appropriate binning for it
@@ -344,6 +428,14 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     spec_true_frac_bias = datamanager.Spectrum(var_true_frac_bias, energy_frac_bias_bins)
     data_manager.add_spectrum(spec_true_frac_bias, "true_frac_bias")
 
+    # Get also the (fractional) difference between the two E_rec predictions
+
+    other_energy_frac_bias_bins = plotting.Binning(-1.0, 1.0, 51)
+
+    var_frac_bias  = datamanager.Variable(get_bias, 0.5, True, True, 0.8, 0.8, 0.1, 100.)
+    spec_frac_bias = datamanager.Spectrum(var_frac_bias, other_energy_frac_bias_bins)
+    data_manager.add_spectrum(spec_frac_bias, "frac_bias")
+
     # Once all the spectra have been added we can load them
     data_manager.load_spectra()
 
@@ -371,8 +463,40 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     ax.legend(fontsize=14, loc="upper left")
 
     # Save and show
-    plt.savefig("numu_cc_energy_bias.pdf", dpi=500, bbox_inches='tight')
-    plt.show()
+    plt.savefig("numu_cc_energy_bias_true.pdf", dpi=500, bbox_inches='tight')
+    
+    if batch:
+        plt.close()
+    else:
+        plt.show()
+
+    # Same but for the RecoParticles from the selected events
+    fig, ax = plt.subplots(figsize=(7,5))
+
+    # We plot the distribution including the pion mass...
+    hist_reco_bias = spec_reco_bias.get_histogram()
+    hist_reco_bias.set_label("Default")
+    hist_reco_bias.plot_histogram_errorbar(ax, color="b", zorder=100)
+
+    # ...and also the distribution considering only the kinetic contribution
+    hist_reco_bias_no_pion = spec_reco_bias_no_pion.get_histogram()
+    hist_reco_bias_no_pion.set_label(r"No $\pi^{\pm}$ mass")
+    hist_reco_bias_no_pion.plot_histogram(ax, color="r", zorder=99)
+
+    # Put labels, grid, legend and nice tick parameters
+    ax.set_xlabel("Energy bias [MeV]", fontsize=16, labelpad=10, loc="right")
+    ax.set_ylabel("Counts", fontsize=16, labelpad=10, loc="top")
+    ax.tick_params(axis='both', which='major', labelsize=14)
+    ax.grid()
+    ax.legend(fontsize=14, loc="upper left")
+
+    # Save the plot
+    plt.savefig("numu_cc_energy_bias_reco.pdf", dpi=500, bbox_inches='tight')
+
+    if batch:
+        plt.close()
+    else:
+        plt.show()
 
     fig, ax = plt.subplots(figsize=(7,5))
 
@@ -391,7 +515,67 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     ax.legend(fontsize=14, loc="upper left")
 
     plt.savefig("numu_cc_energy_frac_bias.pdf", dpi=500, bbox_inches='tight')
-    plt.show()
+    
+    if batch:
+        plt.close()
+    else:
+        plt.show()
+
+    fig, ax = plt.subplots(figsize=(7,5))
+
+    hist_frac_bias = spec_frac_bias.get_histogram()
+    hist_frac_bias.set_label("Data")
+
+    # Fit histogram to double gaussian function
+
+    # First, generate the parameter list with some decent
+    # guesses and constrains
+    params = model.make_params(m1 = dict(value=0.0, vary=False),
+                               s1 = dict(value=0.05, min=0.0001),
+                               a1 = dict(value=1000.0, min=0.0),
+                               m2 = dict(value=0.0, vary=False),
+                               s2 = dict(value=0.1, min=0.0001),
+                               a2 = dict(value=100.0, min=0.0))
+    
+    # Create a name dictionary for the variables for nice plotting ;)
+    name_dict = {"m1": r"\mu_{core}",
+                 "s1": r"\sigma_{core}",
+                 "a1": r"A_{core}",
+                 "m2": r"\mu_{tail}",
+                 "s2": r"\sigma_{tail}",
+                 "a2": r"A_{tail}"}
+
+    results = model.fit(hist_frac_bias.counts+1,
+                        params,
+                        x=plotting.bin_centres(other_energy_frac_bias_bins.bins),
+                        weights=1/np.sqrt(hist_frac_bias.counts+1))
+
+    hist_frac_bias.plot_histogram_errorbar(ax, color="black", marker="o", markersize=3., zorder=100)
+
+    x = np.linspace(other_energy_frac_bias_bins.xmin, other_energy_frac_bias_bins.xmax, 1001)
+
+    ax.plot(x, double_gaussian(x, *results.values.values()), color="red", zorder=99, label="Fit")
+
+    plotting.plot_fit_summary(ax, results, x=0.05, y=0.95, name_dict=name_dict)
+
+    ax.set_xlabel(r"$\frac{E_{rec}^{MC} - E_{rec}}{E_{rec}^{MC}}$", fontsize=16, labelpad=10, loc="right")
+    ax.set_ylabel("Counts", fontsize=16, labelpad=10, loc="top")
+    ax.tick_params(axis='both', which='major', labelsize=14)
+    ax.grid()
+    ax.legend(fontsize=14, loc="upper right")
+
+    plt.savefig("numu_cc_erec_frac_bias.pdf", dpi=500, bbox_inches='tight')
+    
+    if batch:
+        plt.close()
+    else:
+        plt.show()
+
+    process.end_process()
+
+    if interactive:
+        import IPython
+        IPython.embed(color="neutral")
 
 if __name__ == "__main__":
 
