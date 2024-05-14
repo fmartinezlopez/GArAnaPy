@@ -83,6 +83,12 @@ class Spectrum2D(Spectrum):
         self.data_x.append(data_point[0])
         self.data_y.append(data_point[1])
 
+    def set_binning(self,
+                    binning_x: plotting.Binning,
+                    binning_y: plotting.Binning) -> None:
+        
+        self.hist = plotting.Histogram2D(binning_x=binning_x, binning_y=binning_y)
+
     def get_histogram(self) -> plotting.Histogram2D:
         
         self.hist.make_hist(self.data_x, self.data_y)
