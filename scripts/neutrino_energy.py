@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import click
 import pickle
 
+from rich import print as rprint
+
 from typing import Union
 
 from garanapy import util
@@ -96,6 +98,21 @@ def get_mc_erec(event: event.Event,
             mc_erec += energy
 
     return mc_erec
+
+def get_enu_vs_mc_erec(event: event.Event,
+                       muon_cut: float,
+                       pion_mass: bool):
+    
+    muon_id = get_selected_numu(event, muon_cut)
+
+    if muon_id > 0:
+
+        mc_erec = get_mc_erec(event, pion_mass)
+
+        return event.nu.energy, mc_erec
+    
+    else:
+        return None
     
 def get_true_bias(event: event.Event,
                   muon_cut: float,
@@ -375,6 +392,10 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
     else:
         raise ValueError("Invalid input type!")
 
+    var_enu_vs_mc_erec = datamanager.Variable(get_enu_vs_mc_erec, 0.5, True)
+    spec_enu_vs_mc_erec = datamanager.Spectrum2D(var_enu_vs_mc_erec, plotting.kNDRecoBinning, plotting.kNDRecoBinning)
+    data_manager.add_spectrum(spec_enu_vs_mc_erec, "enu_vs_mc_erec")
+
     # Energy bias binning (MeV)
     energy_bias_bins = plotting.Binning(-1000.0, 0.0, 50)
 
@@ -440,8 +461,55 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
     data_manager.load_spectra()
 
     # Now the plotting bit
+    rprint("\n[green]Plot, plot, plot\n")
 
-    # First we plot the bias in reconstructed neutrino energy
+    # Plot 2D histogram showing the true neutrino energy versus
+    # the reconstructed energy using the MCParticles list (adding
+    # the pion mass)
+    fig, ax = plt.subplots(figsize=(7,5))
+
+    hist_enu_vs_mc_erec = spec_enu_vs_mc_erec.get_histogram()
+    hist_enu_vs_mc_erec.plot_histogram(fig, ax,
+                                       cmap="rainbow")
+
+    ax.set_xlabel(r"$E_{\nu}$ [GeV]", fontsize=14, labelpad=10, loc="right")
+    ax.set_ylabel(r"$E_{rec}^{MC}$ [GeV]", fontsize=14, labelpad=10, loc="top")
+    ax.tick_params(axis='both', which='major', labelsize=14)
+
+    plt.savefig("numu_cc_enu_vs_mc_erec_recobinning.pdf", dpi=500, bbox_inches='tight')
+    
+    if batch:
+        plt.close()
+    else:
+        plt.show()
+
+    # Using a different binning, plot true nu energy versus MC erec
+    # Also, plot it column normalised (migration matrix!)
+    fig, ax = plt.subplots(figsize=(7,5))
+
+    # Change to a uniform binning
+    energy_bins = plotting.Binning(0.0, 8.0, 20)
+    spec_enu_vs_mc_erec.set_binning(energy_bins, energy_bins)
+
+    hist_enu_vs_mc_erec = spec_enu_vs_mc_erec.get_histogram()
+    hist_enu_vs_mc_erec.plot_histogram(fig, ax,
+                                       cmap="Greys",
+                                       col_norm=True,
+                                       vprob=True,
+                                       colorbar=True)
+
+    ax.set_xlabel(r"$E_{\nu}$ [GeV]", fontsize=14, labelpad=10, loc="right")
+    ax.set_ylabel(r"$E_{rec}^{MC}$ [GeV]", fontsize=14, labelpad=10, loc="top")
+    ax.tick_params(axis='both', which='major', labelsize=14)
+
+    plt.savefig("numu_cc_enu_vs_mc_erec.pdf", dpi=500, bbox_inches='tight')
+    
+    if batch:
+        plt.close()
+    else:
+        plt.show()
+
+    # Plot the bias in reconstructed neutrino energy
     # obtained using the MCParticles from the selected events
     fig, ax = plt.subplots(figsize=(7,5))
 
@@ -498,6 +566,8 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
     else:
         plt.show()
 
+    # Plot the fractional energy bias, i.e. (E_nu - E_rec)/E_nu
+    # obtained for both the MCParticle and RecoParticle cases
     fig, ax = plt.subplots(figsize=(7,5))
 
     hist_reco_frac_bias = spec_reco_frac_bias.get_histogram()
@@ -505,10 +575,10 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
     hist_reco_frac_bias.plot_histogram(ax, color="dodgerblue", zorder=100)
 
     hist_true_frac_bias = spec_true_frac_bias.get_histogram()
-    hist_true_frac_bias.set_label("True")
+    hist_true_frac_bias.set_label("MC")
     hist_true_frac_bias.plot_histogram_errorbar(ax, color="black", zorder=101)
 
-    ax.set_xlabel(r"$\frac{E_{\nu}^{true} - E_{\nu}^{reco}}{E_{\nu}^{true}}$", fontsize=16, labelpad=10, loc="right")
+    ax.set_xlabel(r"$\frac{E_{\nu} - E_{rec}}{E_{\nu}}$", fontsize=16, labelpad=10, loc="right")
     ax.set_ylabel("Counts", fontsize=16, labelpad=10, loc="top")
     ax.tick_params(axis='both', which='major', labelsize=14)
     ax.grid()
@@ -521,15 +591,16 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
     else:
         plt.show()
 
+    # Plot the fractional bias between the E_rec predictions,
+    # i.e. (E_rec^MC - E_rec)/E_rec^MC, fitting a double gaussian
+    # to the resulting distribution
     fig, ax = plt.subplots(figsize=(7,5))
 
     hist_frac_bias = spec_frac_bias.get_histogram()
     hist_frac_bias.set_label("Data")
 
-    # Fit histogram to double gaussian function
-
-    # First, generate the parameter list with some decent
-    # guesses and constrains
+    # Generate the parameter list with some decent
+    # guesses and constraints
     params = model.make_params(m1 = dict(value=0.0, vary=False),
                                s1 = dict(value=0.05, min=0.0001),
                                a1 = dict(value=1000.0, min=0.0),
@@ -545,6 +616,7 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
                  "s2": r"\sigma_{tail}",
                  "a2": r"A_{tail}"}
 
+    # Fit the model
     results = model.fit(hist_frac_bias.counts+1,
                         params,
                         x=plotting.bin_centres(other_energy_frac_bias_bins.bins),
