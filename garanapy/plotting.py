@@ -4,6 +4,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from colorspacious import cspace_converter
 
+from typing import Union
+
 plt.style.use("dune")
 mono = {'family' : 'monospace'}
 plt.rcParams['text.usetex'] = True
@@ -92,26 +94,72 @@ def plot_fit_summary(ax, results, x=0.05, y=0.95, name_dict=None):
     ax.text(x, y, textstr, transform=ax.transAxes, fontsize=12, verticalalignment='top', horizontalalignment='left', bbox=props, fontdict=mono)
 
 class Binning:
-    def __init__(self, xmin: float, xmax: float, nbins: int, log: bool = False) -> None:
-        self.xmin  = xmin
-        self.xmax  = xmax
-        self.nbins = nbins
-        self.log   = log
+    def __init__(self, xmin:   Union[float, None] = None,
+                       xmax:   Union[float, None] = None,
+                       nbins:  Union[int, None] = None,
+                       log:    bool = False,
+                       custom: Union[list, None] = None) -> None:
+        
+        if custom is not None:
+            self.bins = custom
+            self.xmin = custom[0]
+            self.xmax = custom[-1]
+            self.nbins = len(custom)-1
+        else:
+            self.xmin  = xmin
+            self.xmax  = xmax
+            self.nbins = nbins
+            self.log   = log
 
-        self.make_bins()
+            self.make_bins()
 
     def make_bins(self) -> None:
         if self.log:
             self.bins = np.logspace(np.log10(self.xmin),
                                     np.log10(self.xmax),
-                                    self.nbins)
+                                    self.nbins+1)
         else:
             self.bins = np.linspace(self.xmin,
                                     self.xmax,
-                                    self.nbins)
+                                    self.nbins+1)
     
     def add_bin(self, bin) -> None:
         self.bins = np.append(self.bins, bin)
+
+
+# LBL and ND analyses binnings
+
+kBinEdges    = [0.,  0.5,  1.,  1.25, 1.5, 1.75,
+                2.,  2.25, 2.5, 2.75, 3.,  3.25,
+                3.5, 3.75, 4.,  5.,   6.,  10.]
+kYBinEdges   = [0, 0.1, 0.2, 0.3, 0.4, 0.6, 1.0]
+
+kV3BinEdges  = [0.,  0.75, 1.,  1.25, 1.5, 1.75, 2., 2.25,
+                2.5, 2.75, 3.,  3.25, 3.5, 3.75, 4., 4.25,
+                4.5, 5.,   5.5, 6.,   7.,  8.,   10.]
+kYV3BinEdges = [0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0]
+
+kHadBinEdges = [0., 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 
+                0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 
+                1.5, 2., 20.]
+kLepBinEdges = [0., 0.5, 0.75, 1., 1.25, 1.5, 1.75, 2., 2.25,
+                2.375, 2.5, 2.75, 3., 3.25, 3.5, 4., 20]
+
+
+kFDRecoBinning         = Binning(custom=kBinEdges)
+kNDRecoBinning         = Binning(custom=kBinEdges)
+kHadRecoBinning        = Binning(custom=kHadBinEdges)
+kLepRecoBinning        = Binning(custom=kLepBinEdges)
+kFDRecoV3Binning       = Binning(custom=kV3BinEdges)
+kNDRecoV3Binning       = Binning(custom=kV3BinEdges)
+kNDRecoOABinning       = Binning(0.0, 4.0, 20)
+kYBinning              = Binning(custom=kYBinEdges)
+kYV3Binning            = Binning(custom=kYV3BinEdges)
+kTrueBinning           = Binning(0.0, 10.0, 100)
+kTrueCoarseBinning     = Binning(0.0, 10.0, 20)
+kRecoCoarseBinning     = Binning(0.0, 10.0, 20)
+kRecoVeryCoarseBinning = Binning(0.0, 10.0, 5)
+kOneBinBinning         = Binning(0.0, 10.0, 1)
 
 class Histogram:
     def __init__(self,
@@ -218,13 +266,15 @@ class Histogram2D:
         self.yerr = np.sqrt(counts)
 
     def plot_histogram(self,
+                       fig,
                        ax=None,
                        cmap="inferno",
-                       vmin=0.0,
-                       vmax=1.0,
-                       col_norm=True,
+                       vprob=False,
+                       col_norm=False,
                        row_norm=False,
-                       annotations=True,
+                       annotations=False,
+                       scale=False,
+                       colorbar=False,
                        **kwargs) -> None:
         if ax is None:
             fig, ax = plt.subplots()
@@ -238,10 +288,29 @@ class Histogram2D:
             for k in range(self.binning_y.nbins):
                 entries[:,k] = entries[:,k]/np.sum(entries[:,k])
 
-        norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
+        if vprob:
+            norm = matplotlib.colors.Normalize(vmin=0.0, vmax=1.0)
+        else:
+            norm = matplotlib.colors.Normalize()
+
         cmap = matplotlib.cm.get_cmap(cmap)
 
-        ax.imshow(entries.T, origin='lower', cmap=cmap, norm=norm, **kwargs)
+        if scale:
+            ax.imshow(entries.T,
+                      origin='lower',
+                      cmap=cmap,
+                      norm=norm,
+                      **kwargs)
+        else:
+            X, Y = np.meshgrid(self.binning_x.bins, self.binning_y.bins)
+            ax.pcolormesh(X, Y, entries.T,
+                          cmap=cmap,
+                          norm=norm,
+                          rasterized=True,
+                          **kwargs)
+
+        if colorbar:
+            fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
 
         if annotations:
             for m in range(self.binning_x.nbins):
