@@ -33,12 +33,12 @@ class Idle:
                 rprint(f'{self.idle_string} [bold blue]'+animation[idx % len(animation)], end="\r")
                 idx += 1
                 time.sleep(0.1)
-
         t = threading.Thread(target=animate)
         t.start()
 
     def end_idle(self):
         self.done_training = True
+        rprint("", end="\r")
         rprint(f'[green]{self.finish_string}')
 
 class Process:
