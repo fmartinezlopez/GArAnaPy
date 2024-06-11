@@ -94,6 +94,14 @@ class Spectrum2D(Spectrum):
         self.hist.make_hist(self.data_x, self.data_y)
         return self.hist
     
+class MultiSpectrum2D(Spectrum2D):
+    def add_data(self,
+                 data_points: List[Tuple[int, float]]) -> None:
+        
+        for point in data_points:
+            self.data_x.append(point[0])
+            self.data_y.append(point[1])
+    
 class DataManager:
     def __init__(self) -> None:
         self.event_list = []
