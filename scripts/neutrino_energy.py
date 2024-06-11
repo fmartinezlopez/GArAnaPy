@@ -451,7 +451,7 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
 
     # Get also the (fractional) difference between the two E_rec predictions
 
-    other_energy_frac_bias_bins = plotting.Binning(-1.0, 1.0, 51)
+    other_energy_frac_bias_bins = plotting.Binning(-0.5, 0.5, 31)
 
     var_frac_bias  = datamanager.Variable(get_bias, 0.5, True, True, 0.8, 0.8, 0.1, 100.)
     spec_frac_bias = datamanager.Spectrum(var_frac_bias, other_energy_frac_bias_bins)
@@ -470,7 +470,10 @@ def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive:
 
     hist_enu_vs_mc_erec = spec_enu_vs_mc_erec.get_histogram()
     hist_enu_vs_mc_erec.plot_histogram(fig, ax,
-                                       cmap="rainbow")
+                                       cmap="Greys",
+                                       col_norm=True,
+                                       vprob=True,
+                                       colorbar=True)
 
     ax.set_xlabel(r"$E_{\nu}$ [GeV]", fontsize=14, labelpad=10, loc="right")
     ax.set_ylabel(r"$E_{rec}^{MC}$ [GeV]", fontsize=14, labelpad=10, loc="top")
