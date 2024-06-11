@@ -4,9 +4,15 @@ import matplotlib.pyplot as plt
 import click
 import pickle
 
+from rich import print as rprint
+
+from typing import Union
+
+from garanapy import util
 from garanapy import event
 from garanapy import datamanager
 from garanapy import plotting
+from garanapy import idle
 
 # ---------------------------------------------------------------------------- #
 #                              Useful definitions                              #
@@ -69,12 +75,15 @@ def get_selected_numu(event: event.Event,
 # This function will return an iterable for each event instead of a single value
 # The DataManager knows how to handle this when loading the corresponding Spectrum
 def get_true_pion_ke(event: event.Event,
-                     muon_cut: float):
+                     muon_cut: float,
+                     p_thres: float):
 
     muon_id = get_selected_numu(event, muon_cut)
 
     if muon_id > 0:
-        return [mcp.energy-mcp.mass for mcp in event.mcparticle_list if np.abs(mcp.pdg) == 211]
+        return [mcp.energy-mcp.mass for mcp in event.mcparticle_list
+                if (np.abs(mcp.pdg) == 211)
+                &(np.sqrt(np.square(mcp.energy)-np.square(mcp.mass)) >= p_thres)]
     else:
         return None
     
@@ -135,14 +144,14 @@ def get_reco_pion_ke(event: event.Event,
 
 def count_pion_mult(event: event.Event,
                     muon_cut: float,
-                    p_min: float,
+                    p_thres: float,
                     proton_calo_cut: float,
                     proton_tof_cut: float,
                     delta_calo: float,
                     distance_cut: float):
     
-    true_pion_ke = get_true_pion_ke(event, muon_cut)
-    reco_pion_ke = get_reco_pion_ke(event, muon_cut, -1, p_min, proton_calo_cut, proton_tof_cut, delta_calo, distance_cut)
+    true_pion_ke = get_true_pion_ke(event, muon_cut, p_thres)
+    reco_pion_ke = get_reco_pion_ke(event, muon_cut, -1, p_thres, proton_calo_cut, proton_tof_cut, delta_calo, distance_cut)
 
     if true_pion_ke is None:
         n_true_pion = 0
@@ -167,35 +176,67 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
               help="Select input file type", default='ROOT', show_default=True)
 @click.option('-n', '--n_files', type=int,
               help="Number of input files to load", default=-1, show_default=True)
-def cli(data_path: str, input_type: str, n_files: int) -> None:
+@click.option('-b', '--batch', is_flag=True,
+              help="Run in batch mode, don't open plots", default=False, show_default=True)
+@click.option('-i', '--interactive', is_flag=True,
+              help="Open interactive terminal before finishing", default=False, show_default=True)
+def cli(data_path: str, input_type: str, n_files: int, batch: bool, interactive: bool) -> None:
 
-    # Create DataManager object and load data
+    # Start process (for benchmarking)
+    process = idle.Process()
+    process.start_process()
+
+    # Create DataManager object and load data...
     if input_type == "ROOT":
         data_manager = datamanager.DataManager()
         data_manager.open_events(data_path, n_files=n_files)
+    # ...or just load it from a .pickle file
     elif input_type == "pickle":
-        with open(data_path, 'rb') as input:
-            data_manager = pickle.load(input)
+        data_manager = util.open_pickle_data(data_path)
     else:
         raise ValueError("Invalid input type!")
+    
+    p_thres = 0.08 # assume 80 MeV/c pion detection threshold
+
+    muon_score_cut = 0.5
+    proton_dEdx_score_cut = 0.8
+    proton_tof_score_cut = 0.8
+    pion_dEdx_rejection = 0.1
+    pion_vertex_distance_cut = 100.0 # in cm
 
     # Create logarithmic binning
     kinetic_energy_bins = plotting.Binning(5e-3, 1e2, 30, log=True)
 
-    var_true_pion_ke  = datamanager.Variable(get_true_pion_ke, 0.5)
+    var_true_pion_ke  = datamanager.Variable(get_true_pion_ke, muon_score_cut,
+                                                               0.0) # don't use pion threshold to plot true distribution
+    
     spec_true_pion_ke = datamanager.MultiSpectrum(var_true_pion_ke, kinetic_energy_bins)
     data_manager.add_spectrum(spec_true_pion_ke, "true_pion_ke")
 
     spec_reco_pion_ke = {}
-    for p in [11, 13, 211, 321, 2212]:
-        var_reco_pion_ke  = datamanager.Variable(get_reco_pion_ke, 0.5, p, 0.035, 0.8, 0.8, 0.1, 100.)
-        spec_reco_pion_ke[p] = datamanager.MultiSpectrum(var_reco_pion_ke, kinetic_energy_bins)
-        data_manager.add_spectrum(spec_reco_pion_ke[p], f'reco_pion_ke_{p}')
+    for pdg in [11, 13, 211, 321, 2212]:
+        var_reco_pion_ke  = datamanager.Variable(get_reco_pion_ke, muon_score_cut,
+                                                                   pdg,
+                                                                   p_thres,
+                                                                   proton_dEdx_score_cut,
+                                                                   proton_tof_score_cut,
+                                                                   pion_dEdx_rejection,
+                                                                   pion_vertex_distance_cut)
+        
+        spec_reco_pion_ke[pdg] = datamanager.MultiSpectrum(var_reco_pion_ke, kinetic_energy_bins)
+        data_manager.add_spectrum(spec_reco_pion_ke[pdg], f'reco_pion_ke_{pdg}')
 
-    multiplicity_bins = plotting.Binning(-0.5, 3.5, 5)
+    #multiplicity_bins = plotting.Binning(-0.5, 3.5, 4)
+    multiplicity_bins = plotting.Binning(-0.5, 1.5, 2)
     multiplicity_bins.add_bin(100.)
 
-    var_pion_mult = datamanager.Variable(count_pion_mult, 0.5, 0.035, 0.8, 0.8, 0.1, 100.)
+    var_pion_mult = datamanager.Variable(count_pion_mult, muon_score_cut,
+                                                          p_thres, 
+                                                          proton_dEdx_score_cut,
+                                                          proton_tof_score_cut,
+                                                          pion_dEdx_rejection,
+                                                          pion_vertex_distance_cut)
+    
     spec_pion_mult = datamanager.Spectrum2D(var_pion_mult, multiplicity_bins, multiplicity_bins)
     data_manager.add_spectrum(spec_pion_mult, "pion_mult")
 
@@ -210,9 +251,9 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     hist_true_pion_ke.plot_histogram_errorbar(ax, color="k", zorder=100)
 
     hist_reco_pion_ke = {}
-    for p in [11, 13, 211, 321, 2212]:
-        hist_reco_pion_ke[p] = spec_reco_pion_ke[p].get_histogram()
-        hist_reco_pion_ke[p].set_label(particle_names[p])
+    for pdg in [11, 13, 211, 321, 2212]:
+        hist_reco_pion_ke[pdg] = spec_reco_pion_ke[pdg].get_histogram()
+        hist_reco_pion_ke[pdg].set_label(particle_names[pdg])
 
     plotting.stack_histograms(hist_reco_pion_ke, ax)
 
@@ -224,27 +265,76 @@ def cli(data_path: str, input_type: str, n_files: int) -> None:
     ax.legend(fontsize=14, loc="upper right")
 
     plt.savefig("numu_cc_pion_ke.pdf", dpi=500, bbox_inches='tight')
-    plt.show()
+    
+    if batch:
+        plt.close()
+    else:
+        plt.show()
 
     fig, ax = plt.subplots(figsize=(7,5))
 
-    label_pos = np.arange(0.0, 4.5, 1.0)
-    labels = [str(i)+r"$\pi^{\pm}$" for i in range(4)]
-    labels.append(r"$\geq$ 4 $\pi^{\pm}$")
+    #label_pos = np.arange(0.0, 4.5, 1.0)
+    #labels = [str(i)+r"$\pi^{\pm}$" for i in range(4)]
+    #labels.append(r"$\geq$ 4 $\pi^{\pm}$")
+    label_pos = np.arange(0.0, 2.5, 1.0)
+    labels = [str(i)+r"$\pi^{\pm}$" for i in range(2)]
+    labels.append(r"$\geq$ 2 $\pi^{\pm}$")
 
     hist_pion_mult = spec_pion_mult.get_histogram()
-    hist_pion_mult.plot_histogram(ax)
+    hist_pion_mult.plot_histogram(fig,
+                                  ax,
+                                  cmap="inferno",
+                                  vprob=True,
+                                  col_norm=True,
+                                  row_norm=False,
+                                  annotations=True,
+                                  scale=True,
+                                  colorbar=False,
+                                  annotation_size=20)
 
     ax.set_xticks(label_pos)
-    ax.set_xticklabels(labels, fontsize=14)
+    ax.set_xticklabels(labels, fontsize=20)
     ax.set_yticks(label_pos)
-    ax.set_yticklabels(labels, rotation=90, va='center', fontsize=14)
+    ax.set_yticklabels(labels, rotation=90, va='center', fontsize=20)
 
-    ax.set_xlabel(r"GENIE $\pi^{\pm}$ Multiplicity", fontsize=14, labelpad=10, loc="right")
-    ax.set_ylabel(r"Reco $\pi^{\pm}$ Multiplicity", fontsize=14, labelpad=10, loc="top")
+    ax.set_xlabel(r"GENIE $\pi^{\pm}$ Multiplicity", fontsize=20, labelpad=10, loc="right")
+    ax.set_ylabel(r"Reco $\pi^{\pm}$ Multiplicity", fontsize=20, labelpad=10, loc="top")
 
     plt.savefig("numu_cc_pion_multiplicity.pdf", dpi=500, bbox_inches='tight')
-    plt.show()
+
+    if batch:
+        plt.close()
+    else:
+        plt.show()
+
+    fig, ax = plt.subplots(figsize=(7,5))
+
+    total = [sum(hist.counts) for key, hist in hist_reco_pion_ke.items() if key != 211]
+    total_total = sum([sum(hist.counts) for key, hist in hist_reco_pion_ke.items()]) # lol
+    labels_pos = np.arange(0, 4, 1)
+    labels = [r"$e^{\pm}$", r"$\mu^{\pm}$", r"$K^{\pm}$", r"$p$"]
+
+    for i in range(4):
+        plt.bar(labels_pos[i], 100*total[i]/total_total)
+
+    ax.set_xticks(labels_pos)
+    ax.set_xticklabels(labels, fontsize=14)
+
+    ax.set_ylabel("Percentage", fontsize=16, labelpad=10, loc="top")
+    ax.tick_params(axis='both', which='major', labelsize=14)
+    ax.grid()
+
+    plt.savefig("numu_cc_pion_misids.pdf", dpi=500, bbox_inches='tight')
+    if batch:
+        plt.close()
+    else:
+        plt.show()
+
+    process.end_process()
+
+    if interactive:
+        import IPython
+        IPython.embed(color="neutral")
 
 if __name__ == "__main__":
 
